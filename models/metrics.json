@@ -1,0 +1,48 @@
+{
+  "accuracy": 0.946,
+  "classification_report": {
+    "negative": {
+      "precision": 0.951417004048583,
+      "recall": 0.94,
+      "f1-score": 0.9456740442655935,
+      "support": 250.0
+    },
+    "positive": {
+      "precision": 0.9407114624505929,
+      "recall": 0.952,
+      "f1-score": 0.9463220675944334,
+      "support": 250.0
+    },
+    "accuracy": 0.946,
+    "macro avg": {
+      "precision": 0.9460642332495879,
+      "recall": 0.946,
+      "f1-score": 0.9459980559300134,
+      "support": 500.0
+    },
+    "weighted avg": {
+      "precision": 0.9460642332495879,
+      "recall": 0.946,
+      "f1-score": 0.9459980559300135,
+      "support": 500.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      235,
+      15
+    ],
+    [
+      12,
+      238
+    ]
+  ],
+  "train_size": 2000,
+  "test_size": 500,
+  "vocab_size": 2618,
+  "max_features": 10000,
+  "ngram_range": [
+    1,
+    2
+  ]
+}
