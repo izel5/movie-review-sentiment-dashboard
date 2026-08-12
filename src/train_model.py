@@ -2,8 +2,8 @@
 Model Training Pipeline
 
 Trains a logistic regression classifier on TF-IDF features
-extracted from movie reviews. Saves the trained model and
-vectorizer for use by the Streamlit dashboard.
+extracted from the IMDB movie review dataset. Saves the trained
+model and vectorizer for use by the Streamlit dashboard.
 """
 
 import json
@@ -21,21 +21,27 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import train_test_split
 
-from preprocessing import preprocess_dataframe
-
 
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 MODEL_DIR = PROJECT_ROOT / "models"
 
 
+def top_terms(model, vectorizer, positive: bool, n: int = 25) -> list:
+    """Return the n terms whose coefficients push hardest toward one class."""
+    coefs = model.coef_[0]
+    names = vectorizer.get_feature_names_out()
+    order = np.argsort(coefs)[::-1][:n] if positive else np.argsort(coefs)[:n]
+    return [{"term": str(names[i]), "coefficient": float(coefs[i])} for i in order]
+
+
 def train(
     data_path: str = None,
     test_size: float = 0.2,
     random_state: int = 42,
-    max_features: int = 10000,
+    max_features: int = 40000,
     ngram_range: tuple = (1, 2),
-    C: float = 1.0,
+    C: float = 4.0,
 ) -> dict:
     """
     End-to-end training pipeline.
@@ -43,7 +49,7 @@ def train(
     Parameters
     ----------
     data_path : str
-        Path to the reviews CSV. Defaults to data/movie_reviews.csv.
+        Path to the prepared reviews CSV. Defaults to data/movie_reviews.csv.
     test_size : float
         Fraction of data held out for evaluation.
     random_state : int
@@ -66,14 +72,15 @@ def train(
 
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-    # ---- Load & preprocess ----
+    # ---- Load ----
     print("Loading dataset...")
     df = pd.read_csv(data_path)
-    print(f"  Loaded {len(df)} reviews")
-
-    print("Preprocessing text...")
-    df = preprocess_dataframe(df)
-    print(f"  {len(df)} reviews after cleaning")
+    if "clean_review" not in df.columns:
+        raise ValueError(
+            f"{data_path} has no 'clean_review' column. Run src/prepare_dataset.py first."
+        )
+    df = df[df["clean_review"].notna()].reset_index(drop=True)
+    print(f"  Loaded {len(df):,} reviews")
 
     # ---- Encode labels ----
     label_map = {"negative": 0, "positive": 1}
@@ -139,6 +146,8 @@ def train(
         "vocab_size": len(vectorizer.vocabulary_),
         "max_features": max_features,
         "ngram_range": list(ngram_range),
+        "top_positive_terms": top_terms(model, vectorizer, positive=True),
+        "top_negative_terms": top_terms(model, vectorizer, positive=False),
     }
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=2)
