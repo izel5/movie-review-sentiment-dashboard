@@ -33,6 +33,7 @@ Thumbs.db
 models/*.joblib
 data/*.csv
 !data/.gitkeep
+IMDB Dataset.csv
 
 # Logs
 *.log
