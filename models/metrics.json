@@ -1,48 +1,252 @@
 {
-  "accuracy": 0.946,
+  "accuracy": 0.9073308460219824,
   "classification_report": {
     "negative": {
-      "precision": 0.951417004048583,
-      "recall": 0.94,
-      "f1-score": 0.9456740442655935,
-      "support": 250.0
+      "precision": 0.9122411318433463,
+      "recall": 0.9006072874493927,
+      "f1-score": 0.9063868799022105,
+      "support": 4940.0
     },
     "positive": {
-      "precision": 0.9407114624505929,
-      "recall": 0.952,
-      "f1-score": 0.9463220675944334,
-      "support": 250.0
+      "precision": 0.9025793650793651,
+      "recall": 0.9140044203335342,
+      "f1-score": 0.9082559648597385,
+      "support": 4977.0
     },
-    "accuracy": 0.946,
+    "accuracy": 0.9073308460219824,
     "macro avg": {
-      "precision": 0.9460642332495879,
-      "recall": 0.946,
-      "f1-score": 0.9459980559300134,
-      "support": 500.0
+      "precision": 0.9074102484613558,
+      "recall": 0.9073058538914635,
+      "f1-score": 0.9073214223809745,
+      "support": 9917.0
     },
     "weighted avg": {
-      "precision": 0.9460642332495879,
-      "recall": 0.946,
-      "f1-score": 0.9459980559300135,
-      "support": 500.0
+      "precision": 0.9073922245947494,
+      "recall": 0.9073308460219824,
+      "f1-score": 0.9073249091281476,
+      "support": 9917.0
     }
   },
   "confusion_matrix": [
     [
-      235,
-      15
+      4449,
+      491
     ],
     [
-      12,
-      238
+      428,
+      4549
     ]
   ],
-  "train_size": 2000,
-  "test_size": 500,
-  "vocab_size": 2618,
-  "max_features": 10000,
+  "train_size": 39665,
+  "test_size": 9917,
+  "vocab_size": 40000,
+  "max_features": 40000,
   "ngram_range": [
     1,
     2
+  ],
+  "top_positive_terms": [
+    {
+      "term": "great",
+      "coefficient": 10.445792350631113
+    },
+    {
+      "term": "excellent",
+      "coefficient": 9.34299855515114
+    },
+    {
+      "term": "perfect",
+      "coefficient": 8.533441744045845
+    },
+    {
+      "term": "amazing",
+      "coefficient": 7.649912765821064
+    },
+    {
+      "term": "wonderful",
+      "coefficient": 6.918601635849083
+    },
+    {
+      "term": "must see",
+      "coefficient": 6.8231290663868895
+    },
+    {
+      "term": "hilarious",
+      "coefficient": 6.588507316522346
+    },
+    {
+      "term": "one best",
+      "coefficient": 6.409212288773559
+    },
+    {
+      "term": "brilliant",
+      "coefficient": 6.398051482551973
+    },
+    {
+      "term": "best",
+      "coefficient": 6.1244093880625305
+    },
+    {
+      "term": "superb",
+      "coefficient": 6.121022836488983
+    },
+    {
+      "term": "loved",
+      "coefficient": 6.050888278862223
+    },
+    {
+      "term": "enjoyable",
+      "coefficient": 6.025276326147011
+    },
+    {
+      "term": "favorite",
+      "coefficient": 5.942120465927152
+    },
+    {
+      "term": "subtle",
+      "coefficient": 5.921125319310912
+    },
+    {
+      "term": "today",
+      "coefficient": 5.784329764431757
+    },
+    {
+      "term": "fun",
+      "coefficient": 5.575108780430795
+    },
+    {
+      "term": "enjoyed",
+      "coefficient": 5.560422034442116
+    },
+    {
+      "term": "well worth",
+      "coefficient": 5.501011444114853
+    },
+    {
+      "term": "strong",
+      "coefficient": 5.299787885356505
+    },
+    {
+      "term": "wonderfully",
+      "coefficient": 5.2908698201723245
+    },
+    {
+      "term": "awesome",
+      "coefficient": 5.278358828863854
+    },
+    {
+      "term": "refreshing",
+      "coefficient": 5.264179313214918
+    },
+    {
+      "term": "gem",
+      "coefficient": 5.235815514429317
+    },
+    {
+      "term": "funniest",
+      "coefficient": 5.221612041613633
+    }
+  ],
+  "top_negative_terms": [
+    {
+      "term": "worst",
+      "coefficient": -13.283480528255742
+    },
+    {
+      "term": "awful",
+      "coefficient": -11.95421216454338
+    },
+    {
+      "term": "bad",
+      "coefficient": -10.42188435210097
+    },
+    {
+      "term": "boring",
+      "coefficient": -9.523433749406337
+    },
+    {
+      "term": "waste",
+      "coefficient": -9.364618037588965
+    },
+    {
+      "term": "poor",
+      "coefficient": -8.459954304836565
+    },
+    {
+      "term": "terrible",
+      "coefficient": -8.26478961148354
+    },
+    {
+      "term": "fails",
+      "coefficient": -7.853744833969856
+    },
+    {
+      "term": "horrible",
+      "coefficient": -7.585864894933515
+    },
+    {
+      "term": "dull",
+      "coefficient": -7.491660465158572
+    },
+    {
+      "term": "poorly",
+      "coefficient": -7.304386481175025
+    },
+    {
+      "term": "disappointing",
+      "coefficient": -7.189087412411843
+    },
+    {
+      "term": "disappointment",
+      "coefficient": -7.171990581121287
+    },
+    {
+      "term": "nothing",
+      "coefficient": -6.747727170647802
+    },
+    {
+      "term": "annoying",
+      "coefficient": -6.744605187025558
+    },
+    {
+      "term": "lame",
+      "coefficient": -6.665822756394531
+    },
+    {
+      "term": "forgettable",
+      "coefficient": -6.527544652584186
+    },
+    {
+      "term": "worse",
+      "coefficient": -6.50121659692231
+    },
+    {
+      "term": "not good",
+      "coefficient": -6.380986020674403
+    },
+    {
+      "term": "mediocre",
+      "coefficient": -6.226730936551032
+    },
+    {
+      "term": "not worth",
+      "coefficient": -6.178277292098862
+    },
+    {
+      "term": "supposed",
+      "coefficient": -6.05160698715993
+    },
+    {
+      "term": "save",
+      "coefficient": -6.04102003580808
+    },
+    {
+      "term": "no",
+      "coefficient": -6.015173782830928
+    },
+    {
+      "term": "stupid",
+      "coefficient": -5.994825152491834
+    }
   ]
 }

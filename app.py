@@ -2,12 +2,14 @@
 Movie Review Sentiment Dashboard
 
 An interactive Streamlit application for exploring sentiment analysis
-results on movie reviews. Provides visualizations of sentiment trends
-across genres, release periods, and rating distributions, plus a
-live prediction interface for custom text input.
+results on the IMDB 50k movie review dataset. Provides visualizations
+of sentiment balance, review length patterns, vocabulary differences
+between positive and negative reviews, and the terms the classifier
+weights most heavily, plus a live prediction interface.
 """
 
 import sys
+from collections import Counter
 from pathlib import Path
 
 import joblib
@@ -19,6 +21,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import seaborn as sns
 import streamlit as st
+from wordcloud import WordCloud
 
 # Allow imports from src/
 SRC_DIR = Path(__file__).parent / "src"
@@ -35,6 +38,10 @@ MODEL_PATH = PROJECT_ROOT / "models" / "sentiment_model.joblib"
 VECTORIZER_PATH = PROJECT_ROOT / "models" / "tfidf_vectorizer.joblib"
 METRICS_PATH = PROJECT_ROOT / "models" / "metrics.json"
 DATA_PATH = PROJECT_ROOT / "data" / "movie_reviews.csv"
+
+POSITIVE_COLOR = "#38ef7d"
+NEGATIVE_COLOR = "#f45c43"
+SENTIMENT_COLORS = {"positive": POSITIVE_COLOR, "negative": NEGATIVE_COLOR}
 
 st.set_page_config(
     page_title="Movie Review Sentiment Dashboard",
@@ -88,13 +95,9 @@ st.markdown(
 
 @st.cache_data
 def load_data() -> pd.DataFrame:
-    """Load the movie reviews dataset."""
+    """Load the prepared IMDB reviews dataset."""
     df = pd.read_csv(DATA_PATH)
-    df["release_period"] = pd.cut(
-        df["release_year"],
-        bins=[1994, 2000, 2005, 2010, 2015, 2020, 2025],
-        labels=["1995-2000", "2001-2005", "2006-2010", "2011-2015", "2016-2020", "2021-2024"],
-    )
+    df["clean_review"] = df["clean_review"].fillna("")
     return df
 
 
@@ -127,26 +130,61 @@ def predict_sentiment(text: str, model, vectorizer) -> dict:
     }
 
 
+# The leading underscore tells Streamlit not to hash the DataFrame; cache
+# identity comes from filter_key, which is cheap to hash.
+@st.cache_data(show_spinner=False)
+def word_frequencies(filter_key, sentiment: str, _df: pd.DataFrame, sample: int = 6000) -> Counter:
+    """Count cleaned-token frequencies for one sentiment class."""
+    subset = _df.loc[_df["sentiment"] == sentiment, "clean_review"]
+    if len(subset) > sample:
+        subset = subset.sample(sample, random_state=42)
+    counts = Counter()
+    for doc in subset:
+        counts.update(doc.split())
+    return counts
+
+
+def distinctive_frequencies(
+    counts: Counter, other: Counter, min_total: int = 25, min_share: float = 0.55
+) -> Counter:
+    """
+    Keep terms that lean toward this class rather than terms that are merely common.
+
+    Without this, both word clouds are dominated by 'film', 'movie', and 'one',
+    which appear at nearly identical rates in positive and negative reviews.
+    """
+    if not other:
+        return counts
+    leaning = Counter()
+    for term, count in counts.items():
+        total = count + other.get(term, 0)
+        if total >= min_total and count / total >= min_share:
+            leaning[term] = count
+    return leaning or counts
+
+
+@st.cache_data(show_spinner=False)
+def make_wordcloud(filter_key, sentiment: str, _freqs: Counter) -> np.ndarray:
+    """Render a word cloud image from token frequencies."""
+    colormap = "YlGn" if sentiment == "positive" else "OrRd"
+    cloud = WordCloud(
+        width=800,
+        height=400,
+        background_color="white",
+        colormap=colormap,
+        max_words=150,
+        random_state=42,
+    ).generate_from_frequencies(dict(_freqs.most_common(300)))
+    return cloud.to_array()
+
+
 # ---------------------------------------------------------------------------
 # Dashboard Layout
 # ---------------------------------------------------------------------------
 
-def render_sidebar(df: pd.DataFrame) -> pd.DataFrame:
-    """Render sidebar filters and return the filtered DataFrame."""
+def render_sidebar(df: pd.DataFrame):
+    """Render sidebar filters; return the filtered DataFrame and a cache key."""
     st.sidebar.header("Filters")
-
-    selected_genres = st.sidebar.multiselect(
-        "Select Genres",
-        options=sorted(df["genre"].unique()),
-        default=sorted(df["genre"].unique()),
-    )
-
-    year_range = st.sidebar.slider(
-        "Release Year Range",
-        min_value=int(df["release_year"].min()),
-        max_value=int(df["release_year"].max()),
-        value=(int(df["release_year"].min()), int(df["release_year"].max())),
-    )
 
     selected_sentiments = st.sidebar.multiselect(
         "Sentiment",
@@ -154,15 +192,34 @@ def render_sidebar(df: pd.DataFrame) -> pd.DataFrame:
         default=["positive", "negative"],
     )
 
+    min_words, max_words = int(df["word_count"].min()), int(df["word_count"].max())
+    length_range = st.sidebar.slider(
+        "Review Length (words)",
+        min_value=min_words,
+        max_value=max_words,
+        value=(min_words, max_words),
+    )
+
+    keyword = st.sidebar.text_input(
+        "Keyword Search",
+        placeholder="e.g. soundtrack",
+        help="Show only reviews containing this text.",
+    )
+
     filtered = df[
-        (df["genre"].isin(selected_genres))
-        & (df["release_year"].between(*year_range))
-        & (df["sentiment"].isin(selected_sentiments))
+        df["sentiment"].isin(selected_sentiments)
+        & df["word_count"].between(*length_range)
     ]
+    if keyword.strip():
+        filtered = filtered[
+            filtered["review"].str.contains(keyword.strip(), case=False, regex=False)
+        ]
 
     st.sidebar.markdown("---")
     st.sidebar.markdown(f"**Showing {len(filtered):,}** of {len(df):,} reviews")
-    return filtered
+
+    filter_key = (tuple(sorted(selected_sentiments)), length_range, keyword.strip().lower())
+    return filtered, filter_key
 
 
 def render_metrics_row(df: pd.DataFrame, metrics: dict):
@@ -170,7 +227,6 @@ def render_metrics_row(df: pd.DataFrame, metrics: dict):
     total = len(df)
     positive = (df["sentiment"] == "positive").sum()
     negative = (df["sentiment"] == "negative").sum()
-    avg_rating = df["rating"].mean()
 
     cols = st.columns(4)
     with cols[0]:
@@ -209,133 +265,223 @@ def render_sentiment_distribution(df: pd.DataFrame):
         values="count",
         names="sentiment",
         color="sentiment",
-        color_discrete_map={"positive": "#38ef7d", "negative": "#f45c43"},
+        color_discrete_map=SENTIMENT_COLORS,
         hole=0.45,
     )
     fig.update_traces(textposition="inside", textinfo="percent+label")
     fig.update_layout(margin=dict(t=20, b=20, l=20, r=20), height=350)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
-def render_genre_sentiment(df: pd.DataFrame):
-    """Stacked bar chart of sentiment by genre."""
-    st.subheader("Sentiment by Genre")
-    genre_sent = (
-        df.groupby(["genre", "sentiment"])
-        .size()
-        .reset_index(name="count")
-    )
-    fig = px.bar(
-        genre_sent,
-        x="genre",
-        y="count",
-        color="sentiment",
-        barmode="group",
-        color_discrete_map={"positive": "#38ef7d", "negative": "#f45c43"},
-    )
-    fig.update_layout(
-        xaxis_title="Genre",
-        yaxis_title="Number of Reviews",
-        margin=dict(t=20, b=20),
-        height=400,
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-
-def render_sentiment_by_period(df: pd.DataFrame):
-    """Line chart of sentiment proportion over release periods."""
-    st.subheader("Sentiment Trends by Release Period")
-    period_sent = (
-        df.groupby(["release_period", "sentiment"])
-        .size()
-        .unstack(fill_value=0)
-    )
-    period_sent_pct = period_sent.div(period_sent.sum(axis=1), axis=0) * 100
-    period_sent_pct = period_sent_pct.reset_index().melt(
-        id_vars="release_period", var_name="sentiment", value_name="percentage"
-    )
-    fig = px.line(
-        period_sent_pct,
-        x="release_period",
-        y="percentage",
-        color="sentiment",
-        markers=True,
-        color_discrete_map={"positive": "#38ef7d", "negative": "#f45c43"},
-    )
-    fig.update_layout(
-        xaxis_title="Release Period",
-        yaxis_title="Percentage (%)",
-        margin=dict(t=20, b=20),
-        height=400,
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-
-def render_rating_distribution(df: pd.DataFrame):
-    """Histogram of ratings split by sentiment."""
-    st.subheader("Rating Distribution by Sentiment")
+def render_length_distribution(df: pd.DataFrame):
+    """Histogram of review length in words, split by sentiment."""
+    st.subheader("Review Length Distribution")
+    capped = df[df["word_count"] <= df["word_count"].quantile(0.99)]
     fig = px.histogram(
-        df,
-        x="rating",
+        capped,
+        x="word_count",
         color="sentiment",
-        nbins=20,
+        nbins=60,
         barmode="overlay",
         opacity=0.7,
-        color_discrete_map={"positive": "#38ef7d", "negative": "#f45c43"},
+        color_discrete_map=SENTIMENT_COLORS,
     )
     fig.update_layout(
-        xaxis_title="Rating",
+        xaxis_title="Words per Review",
         yaxis_title="Count",
         margin=dict(t=20, b=20),
-        height=400,
+        height=350,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
+    st.caption("Top 1% longest reviews trimmed so the bulk of the distribution stays readable.")
 
 
-def render_avg_rating_by_genre(df: pd.DataFrame):
-    """Bar chart of average rating per genre."""
-    st.subheader("Average Rating by Genre")
-    avg = df.groupby("genre")["rating"].mean().sort_values(ascending=True).reset_index()
-    fig = px.bar(
-        avg,
-        x="rating",
-        y="genre",
-        orientation="h",
-        color="rating",
-        color_continuous_scale="RdYlGn",
+def render_length_summary(df: pd.DataFrame):
+    """Box plot comparing review length across sentiment classes."""
+    st.subheader("Length by Sentiment")
+    capped = df[df["word_count"] <= df["word_count"].quantile(0.99)]
+    fig = px.box(
+        capped,
+        x="sentiment",
+        y="word_count",
+        color="sentiment",
+        color_discrete_map=SENTIMENT_COLORS,
+        points=False,
     )
     fig.update_layout(
-        xaxis_title="Average Rating",
-        yaxis_title="Genre",
+        xaxis_title="",
+        yaxis_title="Words per Review",
         margin=dict(t=20, b=20),
         height=400,
+        showlegend=False,
+    )
+    st.plotly_chart(fig, width="stretch")
+
+
+def render_sample_reviews(df: pd.DataFrame):
+    """Show a handful of real reviews from the current filter."""
+    st.subheader("Sample Reviews")
+    if df.empty:
+        st.info("No reviews match the current filters.")
+        return
+    sample = df.sample(min(10, len(df)), random_state=42)[
+        ["sentiment", "word_count", "review"]
+    ].copy()
+    sample["review"] = sample["review"].str.slice(0, 400) + "..."
+    st.dataframe(sample, width="stretch", hide_index=True)
+
+
+def render_wordclouds(df: pd.DataFrame, filter_key):
+    """Side-by-side word clouds of the vocabulary distinctive to each class."""
+    st.subheader("Distinctive Vocabulary by Sentiment")
+    st.caption(
+        "Terms that appear disproportionately in one class, drawn from cleaned text "
+        "(stopwords removed, negations kept) and sampled to at most 6,000 reviews per "
+        "class. Words common to both — 'film', 'movie', 'one' — are filtered out."
+    )
+    counters = {
+        sentiment: word_frequencies(filter_key, sentiment, df)
+        if (df["sentiment"] == sentiment).any()
+        else Counter()
+        for sentiment in ("positive", "negative")
+    }
+
+    cols = st.columns(2)
+    for col, sentiment in zip(cols, ["positive", "negative"]):
+        with col:
+            st.markdown(f"**{sentiment.capitalize()} Reviews**")
+            if not counters[sentiment]:
+                st.info(f"No {sentiment} reviews in the current filter.")
+                continue
+            other = counters["negative" if sentiment == "positive" else "positive"]
+            freqs = distinctive_frequencies(counters[sentiment], other)
+            st.image(make_wordcloud(filter_key, sentiment, freqs), width="stretch")
+
+    if not all(counters.values()):
+        st.info(
+            "Only one sentiment is selected, so there is nothing to contrast against — "
+            "the cloud above falls back to raw word frequency."
+        )
+
+
+def render_top_terms(df: pd.DataFrame, filter_key):
+    """Bar chart of the most frequent terms in each sentiment class."""
+    st.subheader("Top Terms by Raw Frequency")
+    st.caption(
+        "Unfiltered counts, for corpus context. The two classes look alike here — that "
+        "similarity is the point, and it is why the clouds above weight by distinctiveness."
+    )
+    cols = st.columns(2)
+    for col, sentiment in zip(cols, ["positive", "negative"]):
+        with col:
+            if not (df["sentiment"] == sentiment).any():
+                continue
+            freqs = word_frequencies(filter_key, sentiment, df)
+            top = pd.DataFrame(freqs.most_common(20), columns=["term", "count"])
+            fig = px.bar(
+                top.sort_values("count"),
+                x="count",
+                y="term",
+                orientation="h",
+                color_discrete_sequence=[SENTIMENT_COLORS[sentiment]],
+            )
+            fig.update_layout(
+                title=f"{sentiment.capitalize()} Reviews",
+                xaxis_title="Occurrences",
+                yaxis_title="",
+                margin=dict(t=40, b=20),
+                height=500,
+            )
+            st.plotly_chart(fig, width="stretch")
+
+
+def render_predictive_terms(metrics: dict):
+    """Bar charts of the terms with the strongest model coefficients."""
+    st.subheader("Most Predictive Terms")
+    st.markdown(
+        "Terms with the largest logistic regression coefficients. These are what the "
+        "model actually leans on, as opposed to what simply appears most often."
+    )
+    cols = st.columns(2)
+    specs = [
+        (cols[0], "top_positive_terms", "Pushes Toward Positive", POSITIVE_COLOR, True),
+        (cols[1], "top_negative_terms", "Pushes Toward Negative", NEGATIVE_COLOR, False),
+    ]
+    for col, key, title, color, ascending in specs:
+        with col:
+            terms = pd.DataFrame(metrics[key])
+            terms["magnitude"] = terms["coefficient"].abs()
+            fig = px.bar(
+                terms.sort_values("magnitude"),
+                x="magnitude",
+                y="term",
+                orientation="h",
+                color_discrete_sequence=[color],
+            )
+            fig.update_layout(
+                title=title,
+                xaxis_title="Coefficient Magnitude",
+                yaxis_title="",
+                margin=dict(t=40, b=20),
+                height=600,
+            )
+            st.plotly_chart(fig, width="stretch")
+
+
+def render_vocabulary_stats(df: pd.DataFrame, filter_key):
+    """Summary statistics on vocabulary overlap between the two classes."""
+    st.subheader("Vocabulary Overlap")
+    if not df["sentiment"].nunique() == 2:
+        st.info("Select both sentiments to compare vocabularies.")
+        return
+
+    pos = word_frequencies(filter_key, "positive", df)
+    neg = word_frequencies(filter_key, "negative", df)
+    shared = set(pos) & set(neg)
+
+    cols = st.columns(4)
+    cols[0].metric("Unique Terms (Positive)", f"{len(pos):,}")
+    cols[1].metric("Unique Terms (Negative)", f"{len(neg):,}")
+    cols[2].metric("Shared Terms", f"{len(shared):,}")
+    cols[3].metric(
+        "Overlap",
+        f"{len(shared) / len(set(pos) | set(neg)):.1%}" if (pos or neg) else "n/a",
+    )
+
+    distinct = [
+        {
+            "term": term,
+            "positive_share": pos[term] / (pos[term] + neg[term]),
+            "total": pos[term] + neg[term],
+        }
+        for term in shared
+        if pos[term] + neg[term] >= 200
+    ]
+    if not distinct:
+        return
+
+    skew = pd.DataFrame(distinct)
+    skew["skew"] = (skew["positive_share"] - 0.5).abs()
+    top = skew.nlargest(20, "skew").sort_values("positive_share")
+    fig = px.bar(
+        top,
+        x="positive_share",
+        y="term",
+        orientation="h",
+        color="positive_share",
+        color_continuous_scale=[NEGATIVE_COLOR, "#dddddd", POSITIVE_COLOR],
+        range_color=[0, 1],
+    )
+    fig.add_vline(x=0.5, line_dash="dash", line_color="gray")
+    fig.update_layout(
+        title="Most Sentiment-Skewed Common Terms",
+        xaxis_title="Share of Occurrences in Positive Reviews",
+        yaxis_title="",
+        margin=dict(t=40, b=20),
+        height=550,
         coloraxis_showscale=False,
     )
-    st.plotly_chart(fig, use_container_width=True)
-
-
-def render_yearly_volume(df: pd.DataFrame):
-    """Area chart of review volume by year."""
-    st.subheader("Review Volume by Year")
-    yearly = (
-        df.groupby(["release_year", "sentiment"])
-        .size()
-        .reset_index(name="count")
-    )
-    fig = px.area(
-        yearly,
-        x="release_year",
-        y="count",
-        color="sentiment",
-        color_discrete_map={"positive": "#38ef7d", "negative": "#f45c43"},
-    )
-    fig.update_layout(
-        xaxis_title="Release Year",
-        yaxis_title="Number of Reviews",
-        margin=dict(t=20, b=20),
-        height=400,
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def render_confusion_matrix(metrics: dict):
@@ -374,7 +520,7 @@ def render_prediction_interface(model, vectorizer):
             result = predict_sentiment(user_text, model, vectorizer)
             col1, col2 = st.columns(2)
             with col1:
-                color = "#38ef7d" if result["label"] == "Positive" else "#f45c43"
+                color = POSITIVE_COLOR if result["label"] == "Positive" else NEGATIVE_COLOR
                 st.markdown(
                     f"""<div style="text-align:center; padding:1rem;
                     border-radius:0.5rem; background:{color}20;
@@ -390,7 +536,7 @@ def render_prediction_interface(model, vectorizer):
                         x=[result["negative_prob"], result["positive_prob"]],
                         y=["Negative", "Positive"],
                         orientation="h",
-                        marker_color=["#f45c43", "#38ef7d"],
+                        marker_color=[NEGATIVE_COLOR, POSITIVE_COLOR],
                         text=[f"{result['negative_prob']:.1%}", f"{result['positive_prob']:.1%}"],
                         textposition="auto",
                     )
@@ -401,7 +547,7 @@ def render_prediction_interface(model, vectorizer):
                     height=200,
                     xaxis=dict(range=[0, 1]),
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
         else:
             st.warning("Please enter a review to analyze.")
 
@@ -412,26 +558,30 @@ def render_prediction_interface(model, vectorizer):
 
 def main():
     st.title("Movie Review Sentiment Dashboard")
-    st.markdown(
-        "Analyze sentiment patterns across **2,500 movie reviews** using a "
-        "logistic regression model trained on TF-IDF features."
-    )
 
     # Load resources
     df = load_data()
     model, vectorizer = load_model()
     metrics = load_metrics()
 
+    st.markdown(
+        f"Analyze sentiment patterns across **{len(df):,} IMDB movie reviews** using a "
+        "logistic regression model trained on TF-IDF features."
+    )
+
     # Sidebar filters
-    filtered_df = render_sidebar(df)
+    filtered_df, filter_key = render_sidebar(df)
 
     # KPI row
     render_metrics_row(filtered_df, metrics)
     st.markdown("---")
 
-    # Tabs for organized content
-    tab_overview, tab_genres, tab_temporal, tab_model, tab_predict = st.tabs(
-        ["Overview", "Genre Analysis", "Temporal Trends", "Model Performance", "Live Prediction"]
+    if filtered_df.empty:
+        st.warning("No reviews match the current filters. Widen them in the sidebar.")
+        return
+
+    tab_overview, tab_words, tab_insights, tab_model, tab_predict = st.tabs(
+        ["Overview", "Word Analysis", "Model Insights", "Model Performance", "Live Prediction"]
     )
 
     with tab_overview:
@@ -439,18 +589,20 @@ def main():
         with col1:
             render_sentiment_distribution(filtered_df)
         with col2:
-            render_rating_distribution(filtered_df)
+            render_length_distribution(filtered_df)
+        render_sample_reviews(filtered_df)
 
-    with tab_genres:
-        render_genre_sentiment(filtered_df)
-        render_avg_rating_by_genre(filtered_df)
+    with tab_words:
+        render_wordclouds(filtered_df, filter_key)
+        st.markdown("---")
+        render_top_terms(filtered_df, filter_key)
+        st.markdown("---")
+        render_length_summary(filtered_df)
 
-    with tab_temporal:
-        col1, col2 = st.columns(2)
-        with col1:
-            render_sentiment_by_period(filtered_df)
-        with col2:
-            render_yearly_volume(filtered_df)
+    with tab_insights:
+        render_predictive_terms(metrics)
+        st.markdown("---")
+        render_vocabulary_stats(filtered_df, filter_key)
 
     with tab_model:
         col1, col2 = st.columns(2)
@@ -483,7 +635,7 @@ def main():
                 metrics_df.style.format("{:.4f}").background_gradient(
                     cmap="Greens", axis=None
                 ),
-                use_container_width=True,
+                width="stretch",
             )
             st.markdown("---")
             st.metric("Overall Accuracy", f"{metrics['accuracy']:.2%}")

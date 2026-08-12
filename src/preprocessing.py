@@ -6,10 +6,8 @@ for the sentiment analysis model.
 """
 
 import re
-import string
 
 import nltk
-import pandas as pd
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 
@@ -58,24 +56,3 @@ def clean_text(text: str) -> str:
     tokens = [lemmatizer.lemmatize(t) for t in tokens if t not in STOP_WORDS]
 
     return " ".join(tokens)
-
-
-def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Apply text cleaning to the review column of a DataFrame.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Must contain a 'review' column.
-
-    Returns
-    -------
-    pd.DataFrame
-        Copy of the input with an added 'clean_review' column.
-    """
-    df = df.copy()
-    df["clean_review"] = df["review"].apply(clean_text)
-    # Drop rows where cleaning produced empty strings
-    df = df[df["clean_review"].str.strip().astype(bool)].reset_index(drop=True)
-    return df
